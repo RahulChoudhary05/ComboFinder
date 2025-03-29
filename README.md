@@ -28,20 +28,16 @@ ComboFinder is a powerful web application that helps users find optimal product 
 
 ## 🏗️ Architecture
 
-```mermaid
-ComboFinder Architecture.download-icon {
-            cursor: pointer;
-            transform-origin: center;
-        }
-        .download-icon .arrow-part {
-            transition: transform 0.35s cubic-bezier(0.35, 0.2, 0.14, 0.95);
-             transform-origin: center;
-        }
-        button:has(.download-icon):hover .download-icon .arrow-part, button:has(.download-icon):focus-visible .download-icon .arrow-part {
-          transform: translateY(-1.5px);
-        }
-        #mermaid-diagram-ra95{font-family:var(--font-geist-sans);font-size:12px;fill:#000000;}#mermaid-diagram-ra95 .error-icon{fill:#552222;}#mermaid-diagram-ra95 .error-text{fill:#552222;stroke:#552222;}#mermaid-diagram-ra95 .edge-thickness-normal{stroke-width:1px;}#mermaid-diagram-ra95 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-diagram-ra95 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-diagram-ra95 .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-diagram-ra95 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-diagram-ra95 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-diagram-ra95 .marker{fill:#666;stroke:#666;}#mermaid-diagram-ra95 .marker.cross{stroke:#666;}#mermaid-diagram-ra95 svg{font-family:var(--font-geist-sans);font-size:12px;}#mermaid-diagram-ra95 p{margin:0;}#mermaid-diagram-ra95 .label{font-family:var(--font-geist-sans);color:#000000;}#mermaid-diagram-ra95 .cluster-label text{fill:#333;}#mermaid-diagram-ra95 .cluster-label span{color:#333;}#mermaid-diagram-ra95 .cluster-label span p{background-color:transparent;}#mermaid-diagram-ra95 .label text,#mermaid-diagram-ra95 span{fill:#000000;color:#000000;}#mermaid-diagram-ra95 .node rect,#mermaid-diagram-ra95 .node circle,#mermaid-diagram-ra95 .node ellipse,#mermaid-diagram-ra95 .node polygon,#mermaid-diagram-ra95 .node path{fill:#eee;stroke:#999;stroke-width:1px;}#mermaid-diagram-ra95 .rough-node .label text,#mermaid-diagram-ra95 .node .label text{text-anchor:middle;}#mermaid-diagram-ra95 .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-diagram-ra95 .node .label{text-align:center;}#mermaid-diagram-ra95 .node.clickable{cursor:pointer;}#mermaid-diagram-ra95 .arrowheadPath{fill:#333333;}#mermaid-diagram-ra95 .edgePath .path{stroke:#666;stroke-width:2.0px;}#mermaid-diagram-ra95 .flowchart-link{stroke:#666;fill:none;}#mermaid-diagram-ra95 .edgeLabel{background-color:white;text-align:center;}#mermaid-diagram-ra95 .edgeLabel p{background-color:white;}#mermaid-diagram-ra95 .edgeLabel rect{opacity:0.5;background-color:white;fill:white;}#mermaid-diagram-ra95 .labelBkg{background-color:rgba(255, 255, 255, 0.5);}#mermaid-diagram-ra95 .cluster rect{fill:hsl(0, 0%, 98.9215686275%);stroke:#707070;stroke-width:1px;}#mermaid-diagram-ra95 .cluster text{fill:#333;}#mermaid-diagram-ra95 .cluster span{color:#333;}#mermaid-diagram-ra95 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:var(--font-geist-sans);font-size:12px;background:hsl(-160, 0%, 93.3333333333%);border:1px solid #707070;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-diagram-ra95 .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#000000;}#mermaid-diagram-ra95 .flowchart-link{stroke:hsl(var(--gray-400));stroke-width:1px;}#mermaid-diagram-ra95 .marker,#mermaid-diagram-ra95 marker,#mermaid-diagram-ra95 marker *{fill:hsl(var(--gray-400))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-ra95 .label,#mermaid-diagram-ra95 text,#mermaid-diagram-ra95 text>tspan{fill:hsl(var(--black))!important;color:hsl(var(--black))!important;}#mermaid-diagram-ra95 .background,#mermaid-diagram-ra95 rect.relationshipLabelBox{fill:hsl(var(--white))!important;}#mermaid-diagram-ra95 .entityBox,#mermaid-diagram-ra95 .attributeBoxEven{fill:hsl(var(--gray-150))!important;}#mermaid-diagram-ra95 .attributeBoxOdd{fill:hsl(var(--white))!important;}#mermaid-diagram-ra95 .label-container,#mermaid-diagram-ra95 rect.actor{fill:hsl(var(--white))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-ra95 line{stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-ra95 :root{--mermaid-font-family:var(--font-geist-sans);}API RequestsEmail ServiceUploadProcess DataResultsEmail RequestSend EmailTheme SelectionApply ThemeFrontend (React)Backend (Node.js/Express)SMTP ServerCSV FileCombination AlgorithmUser&#39;s InboxTheme System
-```
+graph TD;
+    A["Frontend (React)"] -->|API Requests| B["Backend (Node.js/Express)"]
+    B -->|Email Service| C["SMTP Server"]
+    D["CSV File"] -->|Upload| A
+    A -->|Process Data| E["Combination Algorithm"]
+    E -->|Results| A
+    A -->|Email Request| B
+    B -->|Send Email| F["User's Inbox"]
+    A -->|Theme Selection| G["Theme System"]
+    G -->|Apply Theme| A
 
 ## 🔄 Data Flow
 
