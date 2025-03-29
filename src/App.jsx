@@ -326,7 +326,7 @@ function App() {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/api/mail/sendemail", {
+      const response = await fetch("https://combofinder.onrender.com/api/mail/sendemail", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

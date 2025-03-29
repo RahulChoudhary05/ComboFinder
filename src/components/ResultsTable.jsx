@@ -67,4 +67,3 @@ const ResultsTable = ({ combinations }) => {
 }
 
 export default ResultsTable
-
