@@ -41,37 +41,39 @@ graph TD;
 
 ## 🔄 Data Flow
 
-```mermaid
-ComboFinder Data Flow.download-icon {
-            cursor: pointer;
-            transform-origin: center;
-        }
-        .download-icon .arrow-part {
-            transition: transform 0.35s cubic-bezier(0.35, 0.2, 0.14, 0.95);
-             transform-origin: center;
-        }
-        button:has(.download-icon):hover .download-icon .arrow-part, button:has(.download-icon):focus-visible .download-icon .arrow-part {
-          transform: translateY(-1.5px);
-        }
-        EmailServiceBackendFrontendUserEmailServiceBackendFrontendUser#mermaid-diagram-r87e{font-family:var(--font-geist-sans);font-size:12px;fill:#000000;}#mermaid-diagram-r87e .error-icon{fill:#552222;}#mermaid-diagram-r87e .error-text{fill:#552222;stroke:#552222;}#mermaid-diagram-r87e .edge-thickness-normal{stroke-width:1px;}#mermaid-diagram-r87e .edge-thickness-thick{stroke-width:3.5px;}#mermaid-diagram-r87e .edge-pattern-solid{stroke-dasharray:0;}#mermaid-diagram-r87e .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-diagram-r87e .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-diagram-r87e .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-diagram-r87e .marker{fill:#666;stroke:#666;}#mermaid-diagram-r87e .marker.cross{stroke:#666;}#mermaid-diagram-r87e svg{font-family:var(--font-geist-sans);font-size:12px;}#mermaid-diagram-r87e p{margin:0;}#mermaid-diagram-r87e .actor{stroke:hsl(0, 0%, 83%);fill:#eee;}#mermaid-diagram-r87e text.actor>tspan{fill:#333;stroke:none;}#mermaid-diagram-r87e .actor-line{stroke:hsl(0, 0%, 83%);}#mermaid-diagram-r87e .messageLine0{stroke-width:1.5;stroke-dasharray:none;stroke:#333;}#mermaid-diagram-r87e .messageLine1{stroke-width:1.5;stroke-dasharray:2,2;stroke:#333;}#mermaid-diagram-r87e #arrowhead path{fill:#333;stroke:#333;}#mermaid-diagram-r87e .sequenceNumber{fill:white;}#mermaid-diagram-r87e #sequencenumber{fill:#333;}#mermaid-diagram-r87e #crosshead path{fill:#333;stroke:#333;}#mermaid-diagram-r87e .messageText{fill:#333;stroke:none;}#mermaid-diagram-r87e .labelBox{stroke:hsl(0, 0%, 83%);fill:#eee;}#mermaid-diagram-r87e .labelText,#mermaid-diagram-r87e .labelText>tspan{fill:#333;stroke:none;}#mermaid-diagram-r87e .loopText,#mermaid-diagram-r87e .loopText>tspan{fill:#333;stroke:none;}#mermaid-diagram-r87e .loopLine{stroke-width:2px;stroke-dasharray:2,2;stroke:hsl(0, 0%, 83%);fill:hsl(0, 0%, 83%);}#mermaid-diagram-r87e .note{stroke:#999;fill:#666;}#mermaid-diagram-r87e .noteText,#mermaid-diagram-r87e .noteText>tspan{fill:#fff;stroke:none;}#mermaid-diagram-r87e .activation0{fill:#f4f4f4;stroke:#666;}#mermaid-diagram-r87e .activation1{fill:#f4f4f4;stroke:#666;}#mermaid-diagram-r87e .activation2{fill:#f4f4f4;stroke:#666;}#mermaid-diagram-r87e .actorPopupMenu{position:absolute;}#mermaid-diagram-r87e .actorPopupMenuPanel{position:absolute;fill:#eee;box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}#mermaid-diagram-r87e .actor-man line{stroke:hsl(0, 0%, 83%);fill:#eee;}#mermaid-diagram-r87e .actor-man circle,#mermaid-diagram-r87e line{stroke:hsl(0, 0%, 83%);fill:#eee;stroke-width:2px;}#mermaid-diagram-r87e .flowchart-link{stroke:hsl(var(--gray-400));stroke-width:1px;}#mermaid-diagram-r87e .marker,#mermaid-diagram-r87e marker,#mermaid-diagram-r87e marker *{fill:hsl(var(--gray-400))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87e .label,#mermaid-diagram-r87e text,#mermaid-diagram-r87e text>tspan{fill:hsl(var(--black))!important;color:hsl(var(--black))!important;}#mermaid-diagram-r87e .background,#mermaid-diagram-r87e rect.relationshipLabelBox{fill:hsl(var(--white))!important;}#mermaid-diagram-r87e .entityBox,#mermaid-diagram-r87e .attributeBoxEven{fill:hsl(var(--gray-150))!important;}#mermaid-diagram-r87e .attributeBoxOdd{fill:hsl(var(--white))!important;}#mermaid-diagram-r87e .label-container,#mermaid-diagram-r87e rect.actor{fill:hsl(var(--white))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87e line{stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87e :root{--mermaid-font-family:var(--font-geist-sans);}Upload CSV fileParse CSV dataSelect columnsSet price rangeFind combinationsDisplay resultsRequest email reportSend email requestGenerate and send emailDeliver email report
-```
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Backend
+    participant EmailService
+    
+    User->>Frontend: Upload CSV file
+    Frontend->>Frontend: Parse CSV data
+    Frontend->>Frontend: Select columns
+    Frontend->>Frontend: Set price range
+    Frontend->>Frontend: Find combinations
+    Frontend->>Frontend: Display results
+    User->>Frontend: Request email report
+    Frontend->>Backend: Send email request
+    Backend->>EmailService: Generate and send email
+    EmailService->>User: Deliver email report
 
 ## 📊 Component Structure
 
-```mermaid
-Component Structure.download-icon {
-            cursor: pointer;
-            transform-origin: center;
-        }
-        .download-icon .arrow-part {
-            transition: transform 0.35s cubic-bezier(0.35, 0.2, 0.14, 0.95);
-             transform-origin: center;
-        }
-        button:has(.download-icon):hover .download-icon .arrow-part, button:has(.download-icon):focus-visible .download-icon .arrow-part {
-          transform: translateY(-1.5px);
-        }
-        #mermaid-diagram-r87j{font-family:var(--font-geist-sans);font-size:12px;fill:#000000;}#mermaid-diagram-r87j .error-icon{fill:#552222;}#mermaid-diagram-r87j .error-text{fill:#552222;stroke:#552222;}#mermaid-diagram-r87j .edge-thickness-normal{stroke-width:1px;}#mermaid-diagram-r87j .edge-thickness-thick{stroke-width:3.5px;}#mermaid-diagram-r87j .edge-pattern-solid{stroke-dasharray:0;}#mermaid-diagram-r87j .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-diagram-r87j .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-diagram-r87j .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-diagram-r87j .marker{fill:#666;stroke:#666;}#mermaid-diagram-r87j .marker.cross{stroke:#666;}#mermaid-diagram-r87j svg{font-family:var(--font-geist-sans);font-size:12px;}#mermaid-diagram-r87j p{margin:0;}#mermaid-diagram-r87j .label{font-family:var(--font-geist-sans);color:#000000;}#mermaid-diagram-r87j .cluster-label text{fill:#333;}#mermaid-diagram-r87j .cluster-label span{color:#333;}#mermaid-diagram-r87j .cluster-label span p{background-color:transparent;}#mermaid-diagram-r87j .label text,#mermaid-diagram-r87j span{fill:#000000;color:#000000;}#mermaid-diagram-r87j .node rect,#mermaid-diagram-r87j .node circle,#mermaid-diagram-r87j .node ellipse,#mermaid-diagram-r87j .node polygon,#mermaid-diagram-r87j .node path{fill:#eee;stroke:#999;stroke-width:1px;}#mermaid-diagram-r87j .rough-node .label text,#mermaid-diagram-r87j .node .label text{text-anchor:middle;}#mermaid-diagram-r87j .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#mermaid-diagram-r87j .node .label{text-align:center;}#mermaid-diagram-r87j .node.clickable{cursor:pointer;}#mermaid-diagram-r87j .arrowheadPath{fill:#333333;}#mermaid-diagram-r87j .edgePath .path{stroke:#666;stroke-width:2.0px;}#mermaid-diagram-r87j .flowchart-link{stroke:#666;fill:none;}#mermaid-diagram-r87j .edgeLabel{background-color:white;text-align:center;}#mermaid-diagram-r87j .edgeLabel p{background-color:white;}#mermaid-diagram-r87j .edgeLabel rect{opacity:0.5;background-color:white;fill:white;}#mermaid-diagram-r87j .labelBkg{background-color:rgba(255, 255, 255, 0.5);}#mermaid-diagram-r87j .cluster rect{fill:hsl(0, 0%, 98.9215686275%);stroke:#707070;stroke-width:1px;}#mermaid-diagram-r87j .cluster text{fill:#333;}#mermaid-diagram-r87j .cluster span{color:#333;}#mermaid-diagram-r87j div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:var(--font-geist-sans);font-size:12px;background:hsl(-160, 0%, 93.3333333333%);border:1px solid #707070;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-diagram-r87j .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#000000;}#mermaid-diagram-r87j .flowchart-link{stroke:hsl(var(--gray-400));stroke-width:1px;}#mermaid-diagram-r87j .marker,#mermaid-diagram-r87j marker,#mermaid-diagram-r87j marker *{fill:hsl(var(--gray-400))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87j .label,#mermaid-diagram-r87j text,#mermaid-diagram-r87j text>tspan{fill:hsl(var(--black))!important;color:hsl(var(--black))!important;}#mermaid-diagram-r87j .background,#mermaid-diagram-r87j rect.relationshipLabelBox{fill:hsl(var(--white))!important;}#mermaid-diagram-r87j .entityBox,#mermaid-diagram-r87j .attributeBoxEven{fill:hsl(var(--gray-150))!important;}#mermaid-diagram-r87j .attributeBoxOdd{fill:hsl(var(--white))!important;}#mermaid-diagram-r87j .label-container,#mermaid-diagram-r87j rect.actor{fill:hsl(var(--white))!important;stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87j line{stroke:hsl(var(--gray-400))!important;}#mermaid-diagram-r87j :root{--mermaid-font-family:var(--font-geist-sans);}AppHeaderMain ContentFooterLogoDeveloperProfileThemeToggleHowItWorksFileUploaderColumnSelectorPriceRangeSelectorResultsTableStatsCardsSocialLinks
-```
+graph TD;
+    A["App"] --> B["Header"]
+    A --> C["Main Content"]
+    A --> D["Footer"]
+    B --> E["Logo"]
+    B --> F["DeveloperProfile"]
+    B --> G["ThemeToggle"]
+    B --> H["HowItWorks"]
+    C --> I["FileUploader"]
+    C --> J["ColumnSelector"]
+    C --> K["PriceRangeSelector"]
+    C --> L["ResultsTable"]
+    C --> M["StatsCards"]
+    D --> N["SocialLinks"]
 
 ## 🚀 Installation
 
