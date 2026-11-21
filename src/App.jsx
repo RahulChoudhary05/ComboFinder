@@ -1,639 +1,621 @@
-import { useState, useRef, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Upload, Mail, Printer, DollarSign, Package, BarChart3, Check } from "lucide-react"
-import Header from "./components/Header"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { AnimatePresence } from "framer-motion"
+import {
+  Upload, SlidersHorizontal, BarChart3, ListChecks, Sparkles, Search, FileSpreadsheet, FileText, FileJson, Printer, Trash2,
+  Columns3, Keyboard, User, Layers, ArrowDownUp, ToggleRight, SearchX, Github,
+} from "lucide-react"
+
+import Background from "./components/Background"
+import { Sidebar, MobileTopBar, BottomNav } from "./components/Navigation"
 import Footer from "./components/Footer"
 import FileUploader from "./components/FileUploader"
-import ResultsTable from "./components/ResultsTable"
-import StatsCards from "./components/StatsCards"
-import ColumnSelector from "./components/ColumnSelector"
+import ColumnMapper from "./components/ColumnMapper"
+import DataInsights from "./components/DataInsights"
+import SearchPanel, { SIZE_PRESETS } from "./components/SearchPanel"
+import ResultsPanel from "./components/ResultsPanel"
+import DeveloperProfile from "./components/DeveloperProfile"
 import Toast from "./components/Toast"
-import ThemeSelector from "./components/ThemeSelector"
-import "./index.css"
+import CommandPalette from "./components/ui/CommandPalette"
+import ShortcutsDialog from "./components/ui/ShortcutsDialog"
+import ConfirmDialog from "./components/ui/ConfirmDialog"
+import { InsightsSkeleton, ResultsSkeleton } from "./components/ui/Skeleton"
 
-function App() {
-  const [products, setProducts] = useState([])
-  const [combinations, setCombinations] = useState([])
-  const [lowerLimit, setLowerLimit] = useState(490)
-  const [upperLimit, setUpperLimit] = useState(510)
-  const [email, setEmail] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(null)
-  const [showHowItWorks, setShowHowItWorks] = useState(false)
-  const [fileHeaders, setFileHeaders] = useState([])
-  const [showColumnSelector, setShowColumnSelector] = useState(false)
-  const [selectedColumns, setSelectedColumns] = useState([])
-  const [fileContent, setFileContent] = useState(null)
-  const [theme, setTheme] = useState("light")
-  const [showThemeSelector, setShowThemeSelector] = useState(false)
-  const resultsRef = useRef(null)
+import { parseFile, parseDelimitedText } from "./lib/parse"
+import { inferMapping } from "./lib/columns"
+import { buildDataset } from "./lib/dataset"
+import { toCents, setCurrency, formatMoney, fromCents } from "./lib/price"
+import { SORTS } from "./lib/comboEngine"
+import { useComboSearch } from "./lib/useComboSearch"
+import { sampleCSV } from "./lib/samples"
+import { comboRows, lineItemRows, summaryRows, toCSV, toXLSX, downloadBlob, exportFileName } from "./lib/exporters"
+import { useHotkeys, useScrollSpy, useDebouncedCallback, storage } from "./lib/hooks"
+import { API_URL, DEVELOPER } from "./config"
 
+const DEFAULT_PARAMS = {
+  min: "490",
+  max: "510",
+  target: "",
+  minItems: 1,
+  maxItems: 3,
+  sortBy: "closest",
+  limit: 5000,
+  priceField: "priceCents",
+  inStockOnly: false,
+  distinctCategory: false,
+  mustInclude: [],
+  exclude: [],
+}
+const K_SETTINGS = "cf:v2:settings"
+const K_SESSION = "cf:v2:session"
+const SESSION_MAX_CHARS = 2_000_000
+
+function useToasts() {
+  const [toasts, setToasts] = useState([])
+  const idRef = useRef(0)
+  const dismiss = useCallback((id) => setToasts((t) => t.filter((x) => x.id !== id)), [])
+  const push = useCallback(
+    (type, message, action) => {
+      const id = ++idRef.current
+      setToasts((t) => [...t.slice(-2), { id, type, message, action }])
+      setTimeout(() => dismiss(id), action ? 8000 : type === "error" ? 7000 : 4000)
+    },
+    [dismiss],
+  )
+  return { toasts, push, dismiss }
+}
+
+const pickLargestSheet = (sheets) => sheets.reduce((best, s, i) => (s.rows.length > sheets[best].rows.length ? i : best), 0)
+const SECTION_IDS = ["upload", "budget", "insights", "results"]
+
+export default function App() {
+  const { toasts, push, dismiss } = useToasts()
+
+  // dialogs
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [showMapper, setShowMapper] = useState(false)
+
+  // data
+  const [parsing, setParsing] = useState(false)
+  const [parsed, setParsed] = useState(null)
+  const [sheetIndex, setSheetIndex] = useState(0)
+  const [mapping, setMapping] = useState({})
+  const [confidence, setConfidence] = useState({})
+  const [dataset, setDataset] = useState(null)
+  const [source, setSource] = useState({ fileName: "", sheetName: "" })
+
+  // search
+  const saved = useMemo(() => storage.get(K_SETTINGS, null), [])
+  const [currency, setCurrencyState] = useState(saved?.currency || "USD")
+  const [params, setParams] = useState(() => ({ ...DEFAULT_PARAMS, ...(saved?.params || {}) }))
+  const [result, setResult] = useState(null)
+  const [exportBusy, setExportBusy] = useState(null)
+  const search = useComboSearch()
+  const resultSeq = useRef(0)
+
+  const fileInputRef = useRef(null)
+  const filterRef = useRef(null)
+
+  useMemo(() => setCurrency(currency), [currency]) // formatter must update before children render
+
+  const byId = useMemo(() => new Map((dataset?.products || []).map((p) => [p.id, p])), [dataset])
+  const sortedPrices = useMemo(
+    () => (dataset ? Int32Array.from(dataset.products, (p) => p[params.priceField]).sort() : null),
+    [dataset, params.priceField],
+  )
+
+  // ------------------------------------------------------------ autosave (debounced)
+
+  const saveSettings = useDebouncedCallback((p, c) => storage.set(K_SETTINGS, { params: p, currency: c }), 400)
+  useEffect(() => saveSettings(params, currency), [params, currency, saveSettings])
+
+  const loadDataset = useCallback(
+    (sheet, map, meta, { silent = false } = {}) => {
+      const ds = buildDataset(sheet, map)
+      if (!ds.products.length) throw new Error("No valid rows. Check that the price column contains numbers.")
+      setDataset(ds)
+      setSource(meta)
+      if (ds.currency) setCurrencyState(ds.currency)
+      setResult(null)
+      setParams((p) => {
+        const next = {
+          ...p,
+          priceField: ds.hasDiscount ? p.priceField : "priceCents",
+          inStockOnly: ds.hasStock && p.inStockOnly,
+          distinctCategory: ds.hasCategory && p.distinctCategory,
+          sortBy: p.sortBy === "saving" && !ds.hasDiscount ? "closest" : p.sortBy,
+        }
+        if (!silent) Object.assign(next, { mustInclude: [], exclude: [] })
+        // Re-anchor a range that cannot match anything in this catalogue on its median.
+        const prices = ds.products.map((x) => x.priceCents).sort((a, b) => a - b)
+        if (toCents(Number(next.max)) < prices[0] || toCents(Number(next.min)) > prices.at(-1) * next.maxItems) {
+          const m = fromCents(ds.report.stats.median)
+          Object.assign(next, { target: String(m), min: String(+(m * 0.95).toFixed(2)), max: String(+(m * 1.05).toFixed(2)) })
+        }
+        return next
+      })
+      return ds
+    },
+    [],
+  )
+
+  // Restore last session once.
   useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => {
-        setSuccess(null)
-      }, 5000)
-      return () => clearTimeout(timer)
+    const s = storage.get(K_SESSION, null)
+    if (!s?.sheet) return
+    try {
+      loadDataset(s.sheet, s.mapping, { fileName: s.fileName, sheetName: s.sheetName }, { silent: true })
+      setParsed({ fileName: s.fileName, format: s.format, sheets: [s.sheet] })
+      setSheetIndex(0)
+      setMapping(s.mapping)
+      push("info", `Restored ${s.fileName} from your last visit.`, {
+        label: "Start fresh",
+        onClick: () => {
+          storage.remove(K_SESSION)
+          setDataset(null)
+          setParsed(null)
+          setResult(null)
+        },
+      })
+    } catch {
+      storage.remove(K_SESSION)
     }
-  }, [success])
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => {
-        setError(null)
-      }, 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [error])
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("combofinder-theme")
-    if (savedTheme) {
-      setTheme(savedTheme)
-      document.documentElement.className = savedTheme
-    } else {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      setTheme(prefersDark ? "dark" : "light")
-      document.documentElement.className = prefersDark ? "dark" : "light"
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const changeTheme = (newTheme) => {
-    setTheme(newTheme)
-    document.documentElement.className = newTheme
-    localStorage.setItem("combofinder-theme", newTheme)
-  }
+  // ------------------------------------------------------------ import
 
-  const handleFileContent = (content) => {
+  const openMapper = useCallback((p, index) => {
+    const sheet = p.sheets[index]
+    const inferred = inferMapping(sheet.headers, sheet.rows)
+    setSheetIndex(index)
+    setMapping(inferred.mapping)
+    setConfidence(inferred.confidence)
+    setShowMapper(true)
+  }, [])
+
+  const handleFile = async (file) => {
+    setParsing(true)
     try {
-      setFileContent(content)
-      const lines = content.split("\n")
-      if (lines.length > 0) {
-        const headers = lines[0].split(",").map((header) => header.trim())
-        setFileHeaders(headers)
-        setShowColumnSelector(true)
-
-        const nameIndex = headers.findIndex(
-          (h) => h.toLowerCase().includes("name") || h.toLowerCase().includes("product"),
-        )
-
-        const priceIndex = headers.findIndex(
-          (h) => h.toLowerCase().includes("price") || h.toLowerCase().includes("cost"),
-        )
-
-        const initialSelectedColumns = []
-
-        if (nameIndex !== -1) {
-          initialSelectedColumns.push({
-            header: headers[nameIndex],
-            type: "name",
-            index: nameIndex,
-          })
-        }
-
-        if (priceIndex !== -1) {
-          initialSelectedColumns.push({
-            header: headers[priceIndex],
-            type: "price",
-            index: priceIndex,
-          })
-        }
-
-        setSelectedColumns(initialSelectedColumns)
-      } else {
-        setError("The file appears to be empty.")
-      }
-    } catch (err) {
-      setError("Failed to parse the file. Please ensure it's a valid CSV file.")
-    }
-  }
-
-  const processFileWithSelectedColumns = () => {
-    if (selectedColumns.length === 0) {
-      setError("Please select at least one column.")
-      return
-    }
-
-    const hasNameColumn = selectedColumns.some((col) => col.type === "name")
-    const hasPriceColumn = selectedColumns.some((col) => col.type === "price")
-
-    if (!hasNameColumn || !hasPriceColumn) {
-      setError("Please select at least one name column and one price column.")
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      const lines = fileContent.split("\n")
-      const headers = lines[0].split(",").map((header) => header.trim())
-
-      const newProducts = []
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim()
-        if (!line) continue
-
-        const parts = line.split(",")
-
-        const product = { additionalData: {} }
-        let hasValidName = false
-        let hasValidPrice = false
-
-        for (const column of selectedColumns) {
-          if (column.index < parts.length) {
-            const value = parts[column.index].trim()
-
-            if (column.type === "name" && value) {
-              product.name = value
-              hasValidName = true
-            } else if (column.type === "price") {
-              const price = Number.parseFloat(value)
-              if (!isNaN(price)) {
-                product.price = price
-                hasValidPrice = true
-              }
-            } else {
-              product.additionalData[column.header] = value
-            }
-          }
-        }
-
-        if (hasValidName && hasValidPrice) {
-          newProducts.push(product)
-        }
-      }
-
-      if (newProducts.length === 0) {
-        setError("No valid products found in the file with the selected columns.")
-      } else {
-        setProducts(newProducts)
-        setSuccess(`Successfully loaded ${newProducts.length} products!`)
-        setShowColumnSelector(false)
-      }
-    } catch (err) {
-      setError("Error processing the file with selected columns.")
+      const p = await parseFile(file)
+      setParsed(p)
+      openMapper(p, pickLargestSheet(p.sheets))
+    } catch (e) {
+      push("error", e.message || "Could not read that file.")
     } finally {
-      setIsLoading(false)
+      setParsing(false)
     }
   }
 
-  const findCombinations = () => {
-    if (products.length === 0) {
-      setError("Please upload a product list first.")
-      return
-    }
+  const trySample = useCallback(() => {
+    const p = { fileName: "sample-catalogue.csv", format: "csv", sheets: parseDelimitedText(sampleCSV(), "Sample") }
+    setParsed(p)
+    openMapper(p, 0)
+  }, [openMapper])
 
-    if (lowerLimit >= upperLimit) {
-      setError("Lower limit must be less than upper limit.")
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setSuccess(null)
-
-    setTimeout(() => {
-      try {
-        const result = []
-
-        for (let i = 0; i < products.length; i++) {
-          for (let j = i + 1; j < products.length; j++) {
-            const totalPrice = products[i].price + products[j].price
-            if (totalPrice >= lowerLimit && totalPrice <= upperLimit) {
-              result.push({
-                products: [products[i], products[j]],
-                totalPrice,
-              })
-            }
-          }
-        }
-
-        if (products.length <= 100) {
-          for (let i = 0; i < products.length; i++) {
-            for (let j = i + 1; j < products.length; j++) {
-              for (let k = j + 1; k < products.length; k++) {
-                const totalPrice = products[i].price + products[j].price + products[k].price
-                if (totalPrice >= lowerLimit && totalPrice <= upperLimit) {
-                  result.push({
-                    products: [products[i], products[j], products[k]],
-                    totalPrice,
-                  })
-                }
-              }
-            }
-          }
-        }
-
-        setCombinations(result)
-
-        if (result.length === 0) {
-          setError("No combinations found within the specified price range.")
-        } else {
-          setSuccess(`Found ${result.length} combinations within your price range!`)
-          setTimeout(() => {
-            resultsRef.current?.scrollIntoView({ behavior: "smooth" })
-          }, 500)
-        }
-      } catch (err) {
-        setError("An error occurred while finding combinations.")
-      } finally {
-        setIsLoading(false)
-      }
-    }, 100)
-  }
-
-  const handleEmailSend = async () => {
-    if (!email) {
-      setError("Please enter an email address.")
-      return
-    }
-
-    if (combinations.length === 0) {
-      setError("No combinations to send. Please find combinations first.")
-      return
-    }
-
-    setIsLoading(true)
-
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(to right, #4F46E5, #7C3AED); padding: 20px; text-align: center; border-radius: 10px 10px 0 0;">
-          <img src="cid:logo" alt="ComboFinder Logo" style="width: 80px; height: 80px;">
-          <h1 style="color: white; margin: 10px 0;">ComboFinder Results</h1>
-        </div>
-        <div style="padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
-          <p style="color: #4B5563; font-size: 16px;">Here are your product combinations within the price range of $${lowerLimit} - $${upperLimit}:</p>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-            <thead>
-              <tr style="background-color: #F3F4F6;">
-                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb;">#</th>
-                <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb;">Products</th>
-                <th style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb;">Total Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${combinations
-                .map(
-                  (combo, index) => `
-                <tr style="background-color: ${index % 2 === 0 ? "white" : "#F9FAFB"};">
-                  <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">${index + 1}</td>
-                  <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">
-                    <ul style="margin: 0; padding-left: 20px;">
-                      ${combo.products
-                        .map(
-                          (product) => `
-                        <li style="margin-bottom: 4px;">
-                          <strong>${product.name}</strong> ($${product.price.toFixed(2)})
-                          ${Object.entries(product.additionalData || {})
-                            .map(
-                              ([key, value]) =>
-                                `<br><span style="font-size: 12px; color: #6B7280;">${key}: ${value}</span>`,
-                            )
-                            .join("")}
-                        </li>
-                      `,
-                        )
-                        .join("")}
-                    </ul>
-                  </td>
-                  <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; font-weight: bold; color: #047857;">$${combo.totalPrice.toFixed(2)}</td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; color: #6B7280; font-size: 14px;">
-            <p>Thank you for using ComboFinder!</p>
-            <p>© ${new Date().getFullYear()} ComboFinder - Find the perfect product combinations</p>
-          </div>
-        </div>
-      </div>
-    `
-
-    const data = {
-      to: email,
-      subject: "Your ComboFinder Results",
-      text: combinations
-        .map((combo, index) => {
-          return `Combination #${index + 1}:\nProducts: ${combo.products.map((p) => p.name).join(", ")}\nTotal Price: $${combo.totalPrice.toFixed(2)}\n`
-        })
-        .join("\n"),
-      html: htmlContent,
-    }
-
+  const confirmMapping = () => {
+    const sheet = parsed.sheets[sheetIndex]
+    const meta = { fileName: parsed.fileName, sheetName: parsed.sheets.length > 1 ? sheet.name : "" }
     try {
-      const response = await fetch("https://combofinder.onrender.com/api/mail/sendemail", {
+      const ds = loadDataset(sheet, mapping, meta)
+      setShowMapper(false)
+      const session = { ...meta, format: parsed.format, sheet, mapping }
+      const fits = JSON.stringify(session).length < SESSION_MAX_CHARS && storage.set(K_SESSION, session)
+      if (!fits) storage.remove(K_SESSION)
+      push("success", `Loaded ${ds.products.length.toLocaleString()} products${ds.report.skipped ? ` · ${ds.report.skipped} rows skipped` : ""}.`)
+      setTimeout(() => navigate("budget"), 250)
+    } catch (e) {
+      push("error", e.message)
+    }
+  }
+
+  const clearCatalogue = () => {
+    search.cancel()
+    storage.remove(K_SESSION)
+    setDataset(null)
+    setParsed(null)
+    setResult(null)
+    setParams((p) => ({ ...p, mustInclude: [], exclude: [] }))
+    push("info", "Catalogue removed.")
+  }
+
+  // ------------------------------------------------------------ search
+
+  const runSearch = useCallback(
+    async (override) => {
+      if (!dataset) return push("info", "Load a catalogue first.")
+      const p = override || params
+      const min = toCents(Number(p.min)), max = toCents(Number(p.max))
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return push("error", "Fix the price range first.")
+      const target = p.target === "" ? null : toCents(Number(p.target))
+      const slim = dataset.products.map(({ id, priceCents, finalCents, category, inStock }) => ({ id, priceCents, finalCents, category, inStock }))
+      try {
+        const r = await search.search(slim, { ...p, min, max, target })
+        setResult({ ...r, id: ++resultSeq.current, params: { ...p, min, max } })
+        if (r.matches) {
+          push("success", `${r.matches.toLocaleString()} match${r.matches === 1 ? "" : "es"} in ${r.elapsedMs} ms.`)
+          if (!override) setTimeout(() => navigate("results"), 120)
+        } else if (!override) setTimeout(() => navigate("results"), 120)
+      } catch (e) {
+        if (!e.cancelled) push("error", e.message, { label: "Retry", onClick: () => runSearch(override) })
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dataset, params, search.search],
+  )
+
+  // Optimistic pin/exclude: UI updates now, the search re-runs in the background.
+  const rerun = useDebouncedCallback((p) => runSearch(p), 350)
+  const updateParamsAndRerun = (fn) =>
+    setParams((p) => {
+      const next = fn(p)
+      if (result) rerun(next)
+      return next
+    })
+  const pin = (id) => {
+    updateParamsAndRerun((p) => ({ ...p, mustInclude: p.mustInclude.includes(id) ? p.mustInclude.filter((x) => x !== id) : [...p.mustInclude, id], exclude: p.exclude.filter((x) => x !== id) }))
+  }
+  const exclude = (id) => {
+    const name = byId.get(id)?.name
+    const wasExcluded = params.exclude.includes(id)
+    updateParamsAndRerun((p) => ({ ...p, exclude: wasExcluded ? p.exclude.filter((x) => x !== id) : [...p.exclude, id], mustInclude: p.mustInclude.filter((x) => x !== id) }))
+    if (!wasExcluded)
+      push("info", `Excluded ${name}.`, { label: "Undo", onClick: () => updateParamsAndRerun((p) => ({ ...p, exclude: p.exclude.filter((x) => x !== id) })) })
+  }
+
+  const recover = (patch) => {
+    const next = { ...params, ...patch }
+    setParams(next)
+    runSearch(next)
+  }
+
+  // ------------------------------------------------------------ export
+
+  const exportMeta = (combos) => ({
+    fileName: source.fileName + (source.sheetName ? ` › ${source.sheetName}` : ""),
+    min: result.params.min,
+    max: result.params.max,
+    minItems: result.params.minItems,
+    maxItems: result.params.maxItems,
+    priceField: result.params.priceField,
+    sortLabel: SORTS[result.params.sortBy],
+    matches: result.matches,
+    exported: combos.length,
+    complete: result.complete,
+    elapsedMs: result.elapsedMs,
+  })
+
+  const handleExport = async (kind, subset) => {
+    if (!result?.combos.length) return push("info", "Run a search first.")
+    const combos = subset?.length ? subset : result.combos
+    const base = subset?.length ? "combofinder-selection" : "combofinder-results"
+    const opts = { priceField: result.params.priceField, currency }
+    try {
+      if (kind === "csv") downloadBlob("﻿" + toCSV(comboRows(combos, byId, opts)), exportFileName(base, "csv"), "text/csv;charset=utf-8")
+      else if (kind === "json") {
+        const json = {
+          ...exportMeta(combos),
+          currency,
+          combos: combos.map((c, i) => ({
+            rank: c.rank || i + 1,
+            total: fromCents(c.total),
+            saving: fromCents(c.saving || 0),
+            products: c.items.map((id) => {
+              const p = byId.get(id)
+              return { sku: p.sku, name: p.name, category: p.category, price: fromCents(p.priceCents), finalPrice: fromCents(p.finalCents), inStock: p.inStock, ...p.extra }
+            }),
+          })),
+        }
+        downloadBlob(JSON.stringify(json, null, 2), exportFileName(base, "json"), "application/json")
+      } else if (kind === "xlsx") {
+        setExportBusy("xlsx")
+        const data = await toXLSX({ summary: summaryRows(exportMeta(combos)), combos: comboRows(combos, byId, opts), lineItems: lineItemRows(combos, byId, dataset.extraHeaders) })
+        downloadBlob(data, exportFileName(base, "xlsx"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      }
+      push("success", `Downloaded ${combos.length.toLocaleString()} combos as ${kind === "xlsx" ? "Excel" : kind.toUpperCase()}.`)
+    } catch (e) {
+      push("error", `Export failed: ${e.message}`, { label: "Retry", onClick: () => handleExport(kind, subset) })
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
+  const handleEmail = async (to) => {
+    setExportBusy("email")
+    try {
+      const top = result.combos.slice(0, 200)
+      const res = await fetch(`${API_URL}/api/mail/results`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          to,
+          currency,
+          summary: {
+            fileName: source.fileName,
+            min: fromCents(result.params.min),
+            max: fromCents(result.params.max),
+            minItems: result.params.minItems,
+            maxItems: result.params.maxItems,
+            matches: result.matches,
+            sortLabel: SORTS[result.params.sortBy],
+          },
+          combos: top.map((c) => ({
+            total: fromCents(c.total),
+            items: c.items.map((id) => {
+              const p = byId.get(id)
+              return { name: p.name, sku: p.sku, category: p.category, price: fromCents(p[result.params.priceField]) }
+            }),
+          })),
+        }),
       })
-
-      const result = await response.json()
-
-      if (response.ok) {
-        setSuccess("Email sent successfully! Check your inbox.")
-        setEmail("")
-      } else {
-        setError(result.message || "Failed to send email.")
-      }
-    } catch (err) {
-      setError("An error occurred while sending the email.")
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.message || `Server responded ${res.status}`)
+      push("success", `Sent ${top.length} combos to ${to}.`)
+      return true
+    } catch (e) {
+      const msg = e.message === "Failed to fetch" ? "Mail server unreachable. It may be waking up." : e.message
+      push("error", `Email failed: ${msg}`, { label: "Retry", onClick: () => handleEmail(to) })
+      return false
     } finally {
-      setIsLoading(false)
+      setExportBusy(null)
     }
   }
 
-  const handlePrint = () => {
-    if (combinations.length === 0) {
-      setError("No combinations to print. Please find combinations first.")
-      return
-    }
+  // ------------------------------------------------------------ navigation, hotkeys, commands
 
-    window.print()
-  }
+  const active = useScrollSpy(SECTION_IDS)
+  const navigate = useCallback((id) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "start" })
+    el.focus?.({ preventScroll: true })
+  }, [])
+
+  const steps = [
+    { id: "upload", label: "Catalogue", icon: Upload, status: dataset ? "done" : "ready", meta: dataset ? dataset.products.length.toLocaleString() : null },
+    { id: "budget", label: "Budget", icon: SlidersHorizontal, status: result ? "done" : dataset ? "ready" : "idle" },
+    { id: "insights", label: "Insights", icon: BarChart3, status: dataset ? "done" : "idle" },
+    { id: "results", label: "Results", icon: ListChecks, status: result?.matches ? "done" : "idle", meta: result ? compact(result.matches) : null, disabled: !result && !search.running },
+  ]
+
+  const anyDialog = paletteOpen || shortcutsOpen || profileOpen || confirmClear || showMapper
+  useHotkeys(
+    {
+      "mod+k": () => setPaletteOpen((v) => !v),
+      "mod+enter": () => runSearch(),
+      "?": () => setShortcutsOpen(true),
+      "/": () => (filterRef.current ? (navigate("results"), setTimeout(() => filterRef.current?.focus(), 300)) : null),
+      u: () => fileInputRef.current?.click(),
+      s: () => trySample(),
+      e: () => handleExport("xlsx"),
+      escape: () => search.running && search.cancel(),
+      1: () => navigate("upload"),
+      2: () => navigate("budget"),
+      3: () => navigate("insights"),
+      4: () => navigate("results"),
+    },
+    !anyDialog,
+  )
+  // ⌘K must also close the palette while it is open.
+  useHotkeys({ "mod+k": () => setPaletteOpen(false) }, paletteOpen)
+
+  const set = (patch) => setParams((p) => ({ ...p, ...patch }))
+  const commands = [
+    { id: "go-upload", group: "Navigate", label: "Go to catalogue", icon: Upload, hint: "1", run: () => navigate("upload") },
+    { id: "go-budget", group: "Navigate", label: "Go to budget & rules", icon: SlidersHorizontal, hint: "2", run: () => navigate("budget") },
+    { id: "go-insights", group: "Navigate", label: "Go to insights", icon: BarChart3, hint: "3", run: () => navigate("insights") },
+    { id: "go-results", group: "Navigate", label: "Go to results", icon: ListChecks, hint: "4", run: () => navigate("results"), disabled: !result },
+    { id: "upload", group: "Data", label: "Upload a file…", icon: Upload, hint: "U", keywords: "open import csv excel xlsx json", run: () => fileInputRef.current?.click() },
+    { id: "sample", group: "Data", label: "Load sample data", icon: Sparkles, hint: "S", keywords: "demo try", run: trySample },
+    { id: "remap", group: "Data", label: "Change column mapping", icon: Columns3, keywords: "columns map", run: () => setShowMapper(true), disabled: !parsed },
+    { id: "clear", group: "Data", label: "Remove catalogue…", icon: Trash2, keywords: "delete reset clear", run: () => setConfirmClear(true), disabled: !dataset },
+    { id: "run", group: "Search", label: "Find combinations", icon: Search, hint: "Ctrl ↵", keywords: "run search go", run: () => runSearch(), disabled: !dataset },
+    ...SIZE_PRESETS.map((p) => ({ id: `size-${p.label}`, group: "Search", label: `Bundle size: ${p.label}`, icon: Layers, run: () => set({ minItems: p.min, maxItems: p.max }) })),
+    ...Object.entries(SORTS).map(([k, v]) => ({ id: `sort-${k}`, group: "Search", label: `Rank by: ${v}`, icon: ArrowDownUp, run: () => set({ sortBy: k }), disabled: k === "saving" && !dataset?.hasDiscount })),
+    { id: "r-disc", group: "Rules", label: `${params.priceField === "finalCents" ? "Use list price" : "Use discounted price"}`, icon: ToggleRight, run: () => set({ priceField: params.priceField === "finalCents" ? "priceCents" : "finalCents" }), disabled: !dataset?.hasDiscount },
+    { id: "r-stock", group: "Rules", label: `${params.inStockOnly ? "Include" : "Exclude"} out-of-stock products`, icon: ToggleRight, run: () => set({ inStockOnly: !params.inStockOnly }), disabled: !dataset?.hasStock },
+    { id: "r-cat", group: "Rules", label: `${params.distinctCategory ? "Allow" : "Disallow"} repeated categories`, icon: ToggleRight, run: () => set({ distinctCategory: !params.distinctCategory }), disabled: !dataset?.hasCategory },
+    { id: "x-xlsx", group: "Export", label: "Export results to Excel", icon: FileSpreadsheet, hint: "E", run: () => handleExport("xlsx"), disabled: !result?.combos.length },
+    { id: "x-csv", group: "Export", label: "Export results to CSV", icon: FileText, run: () => handleExport("csv"), disabled: !result?.combos.length },
+    { id: "x-json", group: "Export", label: "Export results to JSON", icon: FileJson, run: () => handleExport("json"), disabled: !result?.combos.length },
+    { id: "x-print", group: "Export", label: "Print results", icon: Printer, run: () => window.print(), disabled: !result?.combos.length },
+    { id: "help", group: "Help", label: "Keyboard shortcuts", icon: Keyboard, hint: "?", run: () => setShortcutsOpen(true) },
+    { id: "dev", group: "Help", label: "Developer profile", icon: User, run: () => setProfileOpen(true) },
+    { id: "repo", group: "Help", label: "View source on GitHub", icon: Github, run: () => window.open(DEVELOPER.links.repo, "_blank", "noopener") },
+  ]
+
+  // ------------------------------------------------------------ render
+
+  const rangeMin = params.min === "" ? NaN : toCents(Number(params.min))
+  const rangeMax = params.max === "" ? NaN : toCents(Number(params.max))
+  const showResultsSkeleton = search.running && !result
 
   return (
-    <div className={theme}>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 blue:from-blue-50 blue:to-blue-100 green:from-green-50 green:to-emerald-100 purple:from-purple-50 purple:to-violet-100 orange:from-orange-50 orange:to-amber-100 pink:from-pink-50 pink:to-rose-100 transition-colors duration-300">
-        <Header
-          showHowItWorks={showHowItWorks}
-          setShowHowItWorks={setShowHowItWorks}
-          theme={theme}
-          setShowThemeSelector={setShowThemeSelector}
-        />
+    <>
+      <Background />
+      <a href="#main" className="sr-only z-[90] rounded-lg bg-white px-3 py-2 text-black focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
+        Skip to content
+      </a>
+      <Sidebar steps={steps} active={active} onNavigate={navigate} onOpenPalette={() => setPaletteOpen(true)} onOpenShortcuts={() => setShortcutsOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
 
-        <main className="container mx-auto p-4 md:p-6 max-w-5xl">
-          {/* Notification Messages */}
-          <AnimatePresence>
-            {error && <Toast type="error" message={error} onClose={() => setError(null)} />}
+      <div className="lg:pl-60">
+        <MobileTopBar onOpenPalette={() => setPaletteOpen(true)} onOpenProfile={() => setProfileOpen(true)} />
 
-            {success && <Toast type="success" message={success} onClose={() => setSuccess(null)} />}
-          </AnimatePresence>
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 pb-28 pt-8 outline-none sm:px-6 lg:px-10 lg:pb-10 lg:pt-14">
+          {/* Hero: one idea, one highlighted word, three plain steps. */}
+          <header className="mb-8 lg:mb-10 print-hide">
+            <h1 className="max-w-3xl text-[clamp(1.9rem,4.4vw,3.1rem)] font-semibold leading-[1.06] tracking-[-0.04em]">
+              Find every product and bundle that fits your{" "}
+              <mark className="rounded-[6px] bg-accent px-2 text-ink-950 [box-decoration-break:clone]">budget</mark>.
+            </h1>
+            <ol className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-zinc-400">
+              {["Add your product file", "Set a price range", "Download the matches"].map((t, i) => (
+                <li key={t} className="flex items-center gap-2">
+                  <span className="num text-[12px] text-accent">0{i + 1}</span>
+                  {t}
+                </li>
+              ))}
+            </ol>
+          </header>
 
-          {/* Theme Selector Modal */}
-          <AnimatePresence>
-            {showThemeSelector && (
-              <ThemeSelector
-                currentTheme={theme}
-                onThemeChange={changeTheme}
-                onClose={() => setShowThemeSelector(false)}
-              />
-            )}
-          </AnimatePresence>
-
-          {/* Column Selector Modal */}
-          <AnimatePresence>
-            {showColumnSelector && (
-              <ColumnSelector
-                headers={fileHeaders}
-                selectedColumns={selectedColumns}
-                setSelectedColumns={setSelectedColumns}
-                onConfirm={processFileWithSelectedColumns}
-                onCancel={() => setShowColumnSelector(false)}
-                isLoading={isLoading}
-              />
-            )}
-          </AnimatePresence>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            {/* Upload Section */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="bg-white dark:bg-gray-800 blue:bg-blue-50 green:bg-green-50 purple:bg-purple-50 orange:bg-orange-50 pink:bg-pink-50 rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow border border-transparent hover:border-blue-200 dark:hover:border-blue-900 blue:hover:border-blue-300 green:hover:border-green-300 purple:hover:border-purple-300 orange:hover:border-orange-300 pink:hover:border-pink-300"
-            >
-              <div className="flex items-center mb-4">
-                <div className="bg-blue-100 dark:bg-blue-900 blue:bg-blue-200 green:bg-green-200 purple:bg-purple-200 orange:bg-orange-200 pink:bg-pink-200 p-3 rounded-full mr-3 shadow-inner">
-                  <Upload className="w-5 h-5 text-blue-600 dark:text-blue-300 blue:text-blue-600 green:text-green-600 purple:text-purple-600 orange:text-orange-600 pink:text-pink-600" />
+          <div className="grid gap-5 lg:grid-cols-12">
+            <section id="upload" tabIndex={-1} className="card scroll-mt-20 outline-none lg:col-span-5 print-hide" aria-labelledby="upload-title">
+              <div className="card-head">
+                <div>
+                  <h2 id="upload-title" className="card-title">
+                    Product file
+                  </h2>
+                  <p className="card-sub">Any spreadsheet with names and prices.</p>
                 </div>
-                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">Upload Products</h2>
               </div>
+              <FileUploader
+                inputRef={fileInputRef}
+                onFile={handleFile}
+                onTrySample={trySample}
+                busy={parsing}
+                onError={(m) => push("error", m)}
+                loaded={dataset ? { fileName: source.fileName, sheetName: source.sheetName, count: dataset.products.length } : null}
+                onRemap={() => parsed && setShowMapper(true)}
+                onClear={() => setConfirmClear(true)}
+              />
+            </section>
 
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Upload a CSV file with product data. You'll be able to select which columns to use.
-              </p>
+            <div className="lg:col-span-7 print-hide">
+              <SearchPanel
+                params={params}
+                setParams={setParams}
+                dataset={dataset}
+                currency={currency}
+                byId={byId}
+                sortedPrices={sortedPrices}
+                onSearch={() => runSearch()}
+                onCancel={search.cancel}
+                running={search.running}
+                progress={search.progress}
+                liveMatches={search.matches}
+                disabled={!dataset}
+              />
+            </div>
 
-              <FileUploader onFileContent={handleFileContent} isLoading={isLoading} />
-
-              {products.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  className="mt-4 bg-green-50 dark:bg-green-900/20 blue:bg-blue-100/50 green:bg-green-100/50 purple:bg-purple-100/50 orange:bg-orange-100/50 pink:bg-pink-100/50 p-4 rounded-lg border border-green-100 dark:border-green-900 blue:border-blue-200 green:border-green-200 purple:border-purple-200 orange:border-orange-200 pink:border-pink-200"
-                >
-                  <div className="flex items-center">
-                    <div className="bg-green-100 dark:bg-green-800 blue:bg-blue-200 green:bg-green-200 purple:bg-purple-200 orange:bg-orange-200 pink:bg-pink-200 p-1 rounded-full mr-2">
-                      <Check className="w-4 h-4 text-green-600 dark:text-green-300 blue:text-blue-600 green:text-green-600 purple:text-purple-600 orange:text-orange-600 pink:text-pink-600" />
-                    </div>
-                    <p className="text-green-700 dark:text-green-300 blue:text-blue-700 green:text-green-700 purple:text-purple-700 orange:text-orange-700 pink:text-pink-700 font-medium">
-                      Loaded {products.length} products successfully
-                    </p>
-                  </div>
-                  <div className="mt-2 max-h-32 overflow-y-auto text-sm text-gray-600 dark:text-gray-300">
-                    <p className="font-medium mb-1">Sample of loaded products:</p>
-                    <ul className="list-disc pl-5 space-y-1">
-                      {products.slice(0, 3).map((product, idx) => (
-                        <li key={idx}>
-                          {product.name}: ${product.price.toFixed(2)}
-                          {Object.entries(product.additionalData || {}).length > 0 && (
-                            <ul className="list-none pl-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                              {Object.entries(product.additionalData).map(([key, value], i) => (
-                                <li key={i}>
-                                  {key}: {value}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </li>
-                      ))}
-                      {products.length > 3 && <li>...and {products.length - 3} more</li>}
-                    </ul>
-                  </div>
-                </motion.div>
+            <div className="lg:col-span-12 print-hide">
+              {parsing ? (
+                <div id="insights">
+                  <InsightsSkeleton />
+                </div>
+              ) : dataset ? (
+                <DataInsights dataset={dataset} currency={currency} onCurrencyChange={setCurrencyState} rangeMin={params.minItems === 1 ? rangeMin : NaN} rangeMax={params.minItems === 1 ? rangeMax : NaN} priceField={params.priceField} />
+              ) : (
+                <section id="insights" tabIndex={-1} className="card scroll-mt-20 outline-none">
+                  <h2 className="card-title">Your catalogue</h2>
+                  <p className="card-sub">Once a file is loaded you’ll see its price spread, any rows we skipped, and a searchable product list here.</p>
+                </section>
               )}
-            </motion.div>
+            </div>
 
-            {/* Price Range Section */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="bg-white dark:bg-gray-800 blue:bg-blue-50 green:bg-green-50 purple:bg-purple-50 orange:bg-orange-50 pink:bg-pink-50 rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow border border-transparent hover:border-indigo-200 dark:hover:border-indigo-900 blue:hover:border-blue-300 green:hover:border-green-300 purple:hover:border-purple-300 orange:hover:border-orange-300 pink:hover:border-pink-300"
-            >
-              <div className="flex items-center mb-4">
-                <div className="bg-indigo-100 dark:bg-indigo-900 blue:bg-blue-200 green:bg-green-200 purple:bg-purple-200 orange:bg-orange-200 pink:bg-pink-200 p-3 rounded-full mr-3 shadow-inner">
-                  <DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-300 blue:text-blue-600 green:text-green-600 purple:text-purple-600 orange:text-orange-600 pink:text-pink-600" />
+            <div className="lg:col-span-12">
+              {showResultsSkeleton ? (
+                <div id="results">
+                  <ResultsSkeleton />
                 </div>
-                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">Set Price Range</h2>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="lowerLimit"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Lower Limit ($)
-                  </label>
-                  <input
-                    type="number"
-                    id="lowerLimit"
-                    value={lowerLimit}
-                    onChange={(e) => setLowerLimit(Number(e.target.value))}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-600 blue:border-blue-300 green:border-green-300 purple:border-purple-300 orange:border-orange-300 pink:border-pink-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 blue:bg-white green:bg-white purple:bg-white orange:bg-white pink:bg-white text-gray-900 dark:text-gray-100 transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="upperLimit"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Upper Limit ($)
-                  </label>
-                  <input
-                    type="number"
-                    id="upperLimit"
-                    value={upperLimit}
-                    onChange={(e) => setUpperLimit(Number(e.target.value))}
-                    className="w-full p-3 border border-gray-300 dark:border-gray-600 blue:border-blue-300 green:border-green-300 purple:border-purple-300 orange:border-orange-300 pink:border-pink-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 blue:bg-white green:bg-white purple:bg-white orange:bg-white pink:bg-white text-gray-900 dark:text-gray-100 transition-all"
-                  />
-                </div>
-
-                <div className="pt-2">
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={findCombinations}
-                    disabled={isLoading || products.length === 0}
-                    className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center ${
-                      isLoading || products.length === 0
-                        ? "bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-gray-500 dark:text-gray-400"
-                        : "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 dark:from-indigo-600 dark:to-purple-700 blue:from-blue-500 blue:to-blue-600 green:from-green-500 green:to-green-600 purple:from-purple-500 purple:to-purple-600 orange:from-orange-500 orange:to-orange-600 pink:from-pink-500 pink:to-pink-600 text-white shadow-md hover:shadow-lg"
-                    } transition-all`}
-                  >
-                    {isLoading ? (
-                      <>
-                        <svg
-                          className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          ></circle>
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                          ></path>
-                        </svg>
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <BarChart3 className="w-5 h-5 mr-2" /> Find Combinations
-                      </>
+              ) : result && result.matches > 0 ? (
+                <ResultsPanel
+                  result={result}
+                  byId={byId}
+                  categories={dataset?.report.categories || []}
+                  params={params}
+                  filterRef={filterRef}
+                  onPin={pin}
+                  onExclude={exclude}
+                  onExport={handleExport}
+                  onEmail={handleEmail}
+                  exportBusy={exportBusy}
+                  stale={search.running}
+                />
+              ) : result ? (
+                <section id="results" className="card scroll-mt-20 text-center">
+                  <div className="mx-auto grid h-10 w-10 place-items-center text-zinc-500">
+                    <SearchX className="h-6 w-6" />
+                  </div>
+                  <h2 className="mt-4 text-lg font-semibold">Nothing fits between {formatMoney(result.params.min)} and {formatMoney(result.params.max)}</h2>
+                  <p className="mx-auto mt-1 max-w-md text-[13px] text-zinc-400">{result.note || "Try one of these. Each one re-runs the search right away."}</p>
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    <button
+                      className="btn-secondary"
+                      onClick={() => {
+                        const mid = (Number(params.min) + Number(params.max)) / 2
+                        recover({ min: String(+(mid * 0.9).toFixed(2)), max: String(+(mid * 1.1).toFixed(2)) })
+                      }}
+                    >
+                      Widen to ±10%
+                    </button>
+                    {params.maxItems < 4 && (
+                      <button className="btn-secondary" onClick={() => recover({ minItems: 1, maxItems: 4 })}>
+                        Allow up to 4 items
+                      </button>
                     )}
-                  </motion.button>
-                </div>
-              </div>
-
-              <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                <p>
-                  We'll find all product combinations that total between ${lowerLimit} and ${upperLimit}.
-                </p>
-              </div>
-            </motion.div>
+                    {(params.inStockOnly || params.distinctCategory || params.mustInclude.length > 0 || params.exclude.length > 0) && (
+                      <button className="btn-secondary" onClick={() => recover({ inStockOnly: false, distinctCategory: false, mustInclude: [], exclude: [] })}>
+                        Turn off rules
+                      </button>
+                    )}
+                  </div>
+                </section>
+              ) : null}
+            </div>
           </div>
 
-          {/* Results Section */}
-          <AnimatePresence>
-            {combinations.length > 0 && (
-              <motion.div
-                ref={resultsRef}
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 40 }}
-                transition={{ duration: 0.6 }}
-                className="bg-white dark:bg-gray-800 blue:bg-blue-50 green:bg-green-50 purple:bg-purple-50 orange:bg-orange-50 pink:bg-pink-50 rounded-xl shadow-lg p-6 mb-6 border border-transparent hover:border-purple-200 dark:hover:border-purple-900 blue:hover:border-blue-300 green:hover:border-green-300 purple:hover:border-purple-300 orange:hover:border-orange-300 pink:hover:border-pink-300"
-              >
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                  <div className="flex items-center">
-                    <div className="bg-purple-100 dark:bg-purple-900 blue:bg-blue-200 green:bg-green-200 purple:bg-purple-200 orange:bg-orange-200 pink:bg-pink-200 p-3 rounded-full mr-3 shadow-inner">
-                      <Package className="w-5 h-5 text-purple-600 dark:text-purple-300 blue:text-blue-600 green:text-green-600 purple:text-purple-600 orange:text-orange-600 pink:text-pink-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">Results</h2>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {combinations.length} combinations found
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                    <div className="flex flex-1 md:flex-auto">
-                      <input
-                        type="email"
-                        placeholder="Enter email address"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="flex-1 p-3 border border-gray-300 dark:border-gray-600 blue:border-blue-300 green:border-green-300 purple:border-purple-300 orange:border-orange-300 pink:border-pink-300 rounded-l-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white dark:bg-gray-700 blue:bg-white green:bg-white purple:bg-white orange:bg-white pink:bg-white text-gray-900 dark:text-gray-100 transition-all"
-                      />
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={handleEmailSend}
-                        className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 dark:from-green-600 dark:to-green-700 blue:from-blue-500 blue:to-blue-600 green:from-green-500 green:to-green-600 purple:from-purple-500 purple:to-purple-600 orange:from-orange-500 orange:to-orange-600 pink:from-pink-500 pink:to-pink-600 text-white p-3 rounded-r-lg"
-                        title="Send to Email"
-                      >
-                        <Mail className="w-5 h-5" />
-                      </motion.button>
-                    </div>
-
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={handlePrint}
-                      className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 dark:from-purple-600 dark:to-purple-700 blue:from-blue-500 blue:to-blue-600 green:from-green-500 green:to-green-600 purple:from-purple-500 purple:to-purple-600 orange:from-orange-500 orange:to-orange-600 pink:from-pink-500 pink:to-pink-600 text-white p-3 rounded-lg flex items-center justify-center print-hide"
-                      title="Print Results"
-                    >
-                      <Printer className="w-5 h-5 mr-2" /> Print
-                    </motion.button>
-                  </div>
-                </div>
-
-                <ResultsTable combinations={combinations} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Stats Cards */}
-          {products.length > 0 && (
-            <StatsCards
-              productsCount={products.length}
-              lowerLimit={lowerLimit}
-              upperLimit={upperLimit}
-              combinationsCount={combinations.length}
-            />
-          )}
+          <Footer />
         </main>
-
-        <Footer />
       </div>
-    </div>
+
+      <BottomNav steps={steps} active={active} onNavigate={navigate} />
+
+      {/* Toasts: above the tab bar on phones, bottom-right on desktop */}
+      <div className="pointer-events-none fixed inset-x-3 bottom-20 z-[80] flex flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:items-end lg:bottom-6 print-hide" aria-live="polite">
+        <AnimatePresence>
+          {toasts.map((t) => (
+            <Toast key={t.id} type={t.type} message={t.message} action={t.action} onClose={() => dismiss(t.id)} />
+          ))}
+        </AnimatePresence>
+      </div>
+
+      <AnimatePresence>
+        {showMapper && parsed && (
+          <ColumnMapper
+            parsed={parsed}
+            sheetIndex={sheetIndex}
+            onSheetChange={(i) => openMapper(parsed, i)}
+            mapping={mapping}
+            confidence={confidence}
+            onMappingChange={(m) => {
+              setMapping(m)
+              setConfidence({})
+            }}
+            onConfirm={confirmMapping}
+            onCancel={() => setShowMapper(false)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>{paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>{shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>{profileOpen && <DeveloperProfile onClose={() => setProfileOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>
+        {confirmClear && (
+          <ConfirmDialog
+            title="Remove this catalogue?"
+            message={`${source.fileName} and its results will be cleared from this page and from saved sessions. The original file on your computer is not touched.`}
+            confirmLabel="Remove catalogue"
+            onConfirm={clearCatalogue}
+            onClose={() => setConfirmClear(false)}
+          />
+        )}
+      </AnimatePresence>
+    </>
   )
 }
 
-export default App
+function compact(n) {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n)
+}

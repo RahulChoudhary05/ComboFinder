@@ -1,48 +1,32 @@
-const nodemailer = require("nodemailer");
-const fs = require("fs");
-require("dotenv").config();
+const nodemailer = require("nodemailer")
 
-const sendMail = async (to, subject, text, htmlContent, logoFilePath) => {
-  try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.MAIL_HOST,
-      port: process.env.MAIL_PORT,
-      secure: false, // True for port 465, false for others
-      auth: {
-        user: process.env.MAIL_USER,
-        pass: process.env.MAIL_PASS,
-      },
-    });
+let transporter = null
 
-    // Check if the logo file exists
-    if (!fs.existsSync(logoFilePath)) {
-      throw new Error(`Logo file not found at path: ${logoFilePath}`);
-    }
+function getTransporter() {
+  if (transporter) return transporter
+  const { MAIL_HOST, MAIL_PORT, MAIL_USER, MAIL_PASS } = process.env
+  if (!MAIL_HOST || !MAIL_USER || !MAIL_PASS) throw new Error("Mail server is not configured (MAIL_HOST / MAIL_USER / MAIL_PASS).")
+  const port = Number(MAIL_PORT) || 587
+  // Reuse one pooled SMTP connection instead of creating a transporter per request.
+  transporter = nodemailer.createTransport({
+    host: MAIL_HOST.trim(),
+    port,
+    secure: port === 465,
+    pool: true,
+    auth: { user: MAIL_USER.trim(), pass: MAIL_PASS.trim() },
+  })
+  return transporter
+}
 
-    // Configure email options
-    const mailOptions = {
-      from: `"ComboFinder" <${process.env.MAIL_USER}>`,
-      to,
-      subject,
-      text,
-      html: htmlContent, // Include provided HTML content
-      attachments: [
-        {
-          filename: "logo.svg",
-          path: logoFilePath, // File should be resolved here
-          cid: "logo", // Same CID to embed in the email content
-        },
-      ],
-    };
+async function sendMail({ to, subject, text, html, attachments = [] }) {
+  return getTransporter().sendMail({
+    from: `"ComboFinder" <${process.env.MAIL_USER.trim()}>`,
+    to,
+    subject,
+    text,
+    html,
+    attachments,
+  })
+}
 
-    // Send the email
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent:", info.response);
-    return info;
-  } catch (error) {
-    console.error("Error sending email:", error);
-    throw error;
-  }
-};
-
-module.exports = { sendMail };
+module.exports = { sendMail }

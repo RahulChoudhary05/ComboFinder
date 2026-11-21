@@ -1,340 +1,76 @@
-## 📋 Overview
+# ComboFinder
 
-ComboFinder is a powerful web application that helps users find optimal product combinations within a specified price range. Upload your product data, set your budget constraints, and ComboFinder will identify all possible combinations that match your criteria. Perfect for retailers, shoppers, or anyone looking to maximize value within a budget.
+**Find every product, or every bundle of 2–6 products, whose total price lands inside your budget.**
+Upload a catalogue in any common format, map the columns (auto-detected), set a range, and export the answer.
 
-## ✨ Features
+Live: https://combofinder.vercel.app
 
-- **CSV File Upload**: Easily upload your product data in CSV format
-- **Column Selection**: Choose which columns to use for product names, prices, and additional information
-- **Flexible Price Range**: Set minimum and maximum price limits for your combinations
-- **Smart Combination Algorithm**: Efficiently finds all valid product combinations (2-3 items) within your price range
-- **Email Reports**: Send results directly to your email with beautifully formatted HTML templates
-- **Print Functionality**: Print your results for offline reference
-- **Multiple Themes**: Choose from 8 different themes (Light, Dark, System, Blue, Green, Purple, Orange, Pink)
-- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile devices
-- **Developer Profile**: Showcase your information as the developer of this application
-- **Social Integration**: Connect with your social profiles directly from the application
+## Features
 
+- **Any spreadsheet in.** CSV, TSV, TXT, Excel (`.xlsx .xlsm .xlsb .xls`), OpenDocument (`.ods`), Numbers and JSON.
+  Multi-sheet workbooks, title rows above the header, quoted commas, BOMs and `; | \t` delimiters are all handled.
+- **Smart column mapping.** Name, price, SKU, category, stock, discount and description are inferred from header
+  synonyms *and* the column's actual values, each with a confidence score. Every other column is kept as extra info.
+- **Real-world prices.** `$1,200.50`, `₹ 1,20,000`, `1.234,56 €`, `(12.50)`, `Rs. 499`. All money is held in integer
+  cents, so sums are exact.
+- **Data-quality report.** Skipped rows with reasons, duplicates, price distribution histogram (your range is
+  highlighted), median/IQR, category breakdown.
+- **Fast, exact search engine.** Binary search for singles and the last item of every bundle, plus branch-and-bound DFS
+  with O(1) prefix-sum pruning for bundles. Results stream into a bounded top-K heap, so memory stays flat even with
+  millions of matches. See [docs/RND.md](docs/RND.md).
+- **Never freezes.** The search runs in a Web Worker with live progress and cancel.
+- **Rules.** Discounted price, in-stock only, one product per category, always-include (pin) and exclude.
+- **Ranking.** Closest to a target, lowest or highest total, fewest items, biggest discount saving.
+- **Results UI.** Paged, filterable table with expandable product details.
+- **Export.** CSV (formula-injection safe), Excel workbook (Summary / Combos / Line items), JSON, print, and email
+  with a CSV attachment.
+- **Privacy.** Files are parsed in the browser. Only an explicit "Email" sends data (the top 200 combos) to the API.
 
-## 🛠️ Technology Stack
+## Tech
 
-- **Frontend**: React.js, Tailwind CSS, Framer Motion
-- **Backend**: Node.js, Express.js
-- **Email Service**: Nodemailer
-- **State Management**: React Hooks
-- **Styling**: Tailwind CSS with custom theme extensions
-- **Animations**: Framer Motion for fluid UI transitions
+React 18 · Vite 7 · Tailwind CSS · Framer Motion · Papa Parse · SheetJS CE 0.20.3 (lazy-loaded) · Web Workers ·
+Vitest · Node.js / Express / Nodemailer (mail API)
 
+## Run locally
 
-## 🏗️ Architecture
-
-graph TD;
-    A["Frontend (React)"] -->|API Requests| B["Backend (Node.js/Express)"]
-    B -->|Email Service| C["SMTP Server"]
-    D["CSV File"] -->|Upload| A
-    A -->|Process Data| E["Combination Algorithm"]
-    E -->|Results| A
-    A -->|Email Request| B
-    B -->|Send Email| F["User's Inbox"]
-    A -->|Theme Selection| G["Theme System"]
-    G -->|Apply Theme| A
-
-## 🔄 Data Flow
-
-sequenceDiagram
-    participant User
-    participant Frontend
-    participant Backend
-    participant EmailService
-    
-    User->>Frontend: Upload CSV file
-    Frontend->>Frontend: Parse CSV data
-    Frontend->>Frontend: Select columns
-    Frontend->>Frontend: Set price range
-    Frontend->>Frontend: Find combinations
-    Frontend->>Frontend: Display results
-    User->>Frontend: Request email report
-    Frontend->>Backend: Send email request
-    Backend->>EmailService: Generate and send email
-    EmailService->>User: Deliver email report
-
-## 📊 Component Structure
-
-graph TD;
-    A["App"] --> B["Header"]
-    A --> C["Main Content"]
-    A --> D["Footer"]
-    B --> E["Logo"]
-    B --> F["DeveloperProfile"]
-    B --> G["ThemeToggle"]
-    B --> H["HowItWorks"]
-    C --> I["FileUploader"]
-    C --> J["ColumnSelector"]
-    C --> K["PriceRangeSelector"]
-    C --> L["ResultsTable"]
-    C --> M["StatsCards"]
-    D --> N["SocialLinks"]
-
-## 🚀 Installation
-
-### Prerequisites
-
-- Node.js (v14 or higher)
-- npm or yarn
-- SMTP server access for email functionality
-
-
-### Setup Instructions
-
-1. **Clone the repository**
-
-
-```shellscript
-git clone https://github.com/yourusername/combofinder.git
-cd combofinder
-```
-
-2. **Install frontend dependencies**
-
-
-```shellscript
-cd frontend
+```bash
 npm install
+npm run dev        # http://localhost:3000
+npm test           # unit tests (parser, mapping, engine vs brute force, exporters)
+npm run bench      # v1 vs v2 engine benchmark
+npm run build      # production build → build/
 ```
 
-3. **Install backend dependencies**
+Mail API:
 
-
-```shellscript
-cd ../backend
+```bash
+cd server
+cp .env.example .env   # fill in SMTP settings
 npm install
+npm start              # http://localhost:5000
 ```
 
-4. **Configure environment variables**
+Point the frontend at your API with `VITE_API_URL=http://localhost:5000` in a root `.env.local`.
 
+> Rollup is pinned to its WebAssembly build (`overrides` in `package.json`) because some Windows machines block
+> native `.node` binaries via Application Control. Remove the override to use the native build.
 
-Create a `.env` file in the backend directory:
+## Project layout
 
-```plaintext
-PORT=5000
-MAIL_HOST=your-smtp-server.com
-MAIL_PORT=587
-MAIL_USER=your-email@example.com
-MAIL_PASS=your-email-password
 ```
-
-5. **Start the backend server**
-
-
-```shellscript
-npm start
+src/
+  lib/
+    parse.js          multi-format import + header-row detection
+    price.js          locale-tolerant price parsing, integer cents, currency formatting
+    columns.js        column-role inference (header synonyms + value profiling)
+    dataset.js        products + data-quality report + histogram
+    comboEngine.js    search engine (pure function)
+    comboWorker.js    Web Worker wrapper
+    useComboSearch.js React hook: worker lifecycle, progress, cancel
+    exporters.js      CSV / XLSX / JSON export
+    samples.js        sample catalogue (CSV / XLSX / JSON)
+  components/         UI
+server/               Express mail API (structured payload → server-rendered email)
+docs/RND.md           gap analysis, research and design decisions
+scripts/bench.js      benchmark
 ```
-
-6. **Start the frontend development server**
-
-
-```shellscript
-cd ../frontend
-npm start
-```
-
-7. **Access the application**
-
-
-Open your browser and navigate to `http://localhost:3000`
-
-## 📝 Usage Guide
-
-### 1. Upload Product Data
-
-- Click on the upload area or drag and drop a CSV file
-- Your CSV should contain product names and prices (at minimum)
-- You can download a sample file to see the expected format
-
-
-### 2. Select Columns
-
-- Choose which columns represent product names and prices
-- Optionally select additional columns for extra information
-- Confirm your selection
-
-
-### 3. Set Price Range
-
-- Enter your minimum and maximum budget limits
-- These define the acceptable total price range for combinations
-
-
-### 4. Find Combinations
-
-- Click "Find Combinations" to process your data
-- The algorithm will identify all valid combinations within your price range
-- Results will display in a table below
-
-
-### 5. Export Results
-
-- Enter an email address and click the mail icon to receive results via email
-- Click the print button to print your results
-- Results include all product details and total prices
-
-
-### 6. Customize Experience
-
-- Click the theme selector to choose from 8 different themes
-- Explore the developer profile to learn more about the creator
-- Connect via social links in the footer
-
-
-## 📸 Screenshots
-
-## 🧩 Key Components
-
-### Frontend
-
-- **App.jsx**: Main application component
-- **Header.jsx**: Navigation and developer profile
-- **FileUploader.jsx**: Handles CSV file uploads
-- **ColumnSelector.jsx**: Interface for selecting data columns
-- **ResultsTable.jsx**: Displays combination results
-- **ThemeSelector.jsx**: Theme customization interface
-- **DeveloperProfile.jsx**: Developer information modal
-- **Footer.jsx**: Application footer with social links
-
-
-### Backend
-
-- **server.js**: Express server setup
-- **mailRouter.js**: Email API routes
-- **mailSender.js**: Email generation and sending functionality
-
-
-## 🔍 Algorithm
-
-ComboFinder uses an efficient algorithm to find valid product combinations:
-
-1. **For 2-item combinations**:
-
-1. Time Complexity: O(n²)
-2. Space Complexity: O(n²)
-
-
-
-2. **For 3-item combinations**:
-
-1. Time Complexity: O(n³)
-2. Space Complexity: O(n³)
-
-
-
-
-
-For performance reasons, 3-item combinations are only calculated when the product list contains 100 or fewer items.
-
-```javascript
-// Simplified algorithm pseudocode
-function findCombinations(products, lowerLimit, upperLimit) {
-  const combinations = [];
-  
-  // Find 2-item combinations
-  for (let i = 0; i < products.length; i++) {
-    for (let j = i + 1; j < products.length; j++) {
-      const totalPrice = products[i].price + products[j].price;
-      if (totalPrice >= lowerLimit && totalPrice <= upperLimit) {
-        combinations.push({
-          products: [products[i], products[j]],
-          totalPrice
-        });
-      }
-    }
-  }
-  
-  // Find 3-item combinations (if product list is not too large)
-  if (products.length <= 100) {
-    for (let i = 0; i < products.length; i++) {
-      for (let j = i + 1; j < products.length; j++) {
-        for (let k = j + 1; k < products.length; k++) {
-          const totalPrice = products[i].price + products[j].price + products[k].price;
-          if (totalPrice >= lowerLimit && totalPrice <= upperLimit) {
-            combinations.push({
-              products: [products[i], products[j], products[k]],
-              totalPrice
-            });
-          }
-        }
-      }
-    }
-  }
-  
-  return combinations;
-}
-```
-
-## 🎨 Theme System
-
-ComboFinder features a comprehensive theme system with 8 different options:
-
-- **Light**: Clean, bright interface with blue accents
-- **Dark**: Dark mode with reduced eye strain for night use
-- **System**: Automatically matches your system preferences
-- **Blue**: Vibrant blue-focused theme
-- **Green**: Fresh green-focused theme
-- **Purple**: Rich purple-focused theme
-- **Orange**: Warm orange-focused theme
-- **Pink**: Playful pink-focused theme
-
-
-Themes are implemented using Tailwind CSS classes and custom CSS variables, with preferences saved to localStorage for persistence.
-
-## 📧 Email System
-
-The email functionality uses Nodemailer to send beautifully formatted HTML emails:
-
-- **HTML Templates**: Rich, responsive email templates
-- **Embedded Logo**: Brand recognition with embedded logo
-- **Detailed Results**: Complete product information and pricing
-- **Plain Text Fallback**: Compatibility with all email clients
-
-
-## 📱 Responsive Design
-
-ComboFinder is fully responsive across all devices:
-
-- **Desktop**: Full-featured interface with optimal spacing
-- **Tablet**: Adapted layout for medium-sized screens
-- **Mobile**: Streamlined interface with touch-friendly controls
-
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👨‍💻 Developer
-
-**John Doe**
-
-- [GitHub](https://github.com/johndoe)
-- [LinkedIn](https://linkedin.com/in/johndoe)
-- [Portfolio](https://johndoe.dev)
-
-
-## 🙏 Acknowledgements
-
-- [React](https://reactjs.org/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Framer Motion](https://www.framer.com/motion/)
-- [Node.js](https://nodejs.org/)
-- [Express](https://expressjs.com/)
-- [Nodemailer](https://nodemailer.com/)
-- [Lucide Icons](https://lucide.dev/)

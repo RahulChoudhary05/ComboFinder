@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ComboFinder – Find Product Bundles Within Your Budget</title>
+    <meta
+      name="description"
+      content="Upload a product list (Excel, CSV, ODS or JSON) and instantly find every product or 2–6 item bundle priced inside your budget. Free, private, runs in your browser."
+    />
+    <link rel="canonical" href="https://combofinder.vercel.app/" />
+    <meta name="theme-color" content="#06060b" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="index,follow" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="apple-touch-icon" href="/logo.svg" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ComboFinder" />
+    <meta property="og:title" content="ComboFinder – Find Product Bundles Within Your Budget" />
+    <meta property="og:description" content="Upload a catalogue and get every product or bundle that fits a price range. Excel, CSV and JSON export." />
+    <meta property="og:url" content="https://combofinder.vercel.app/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="ComboFinder – Find Product Bundles Within Your Budget" />
+    <meta name="twitter:description" content="Every product or bundle that fits your budget, from any spreadsheet." />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "ComboFinder",
+        "url": "https://combofinder.vercel.app/",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "description": "Find every product or bundle of products whose total price falls within a budget. Imports CSV, Excel, ODS and JSON; exports CSV, Excel and JSON.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": { "@type": "Person", "name": "Rahul Choudhary", "url": "https://rahulchoudhary05.vercel.app" }
+      }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <noscript>
+      <main style="font-family: system-ui; color: #e4e4e7; background: #06060b; padding: 2rem; min-height: 100vh">
+        <h1>ComboFinder: find product bundles within your budget</h1>
+        <p>
+          ComboFinder reads a product catalogue (CSV, TSV, Excel .xlsx/.xls, OpenDocument .ods or JSON), detects the name,
+          price, SKU, category, stock and discount columns, and lists every single product or bundle of 2 to 6 products
+          whose total price falls inside a price range you choose. Results can be ranked, filtered and exported to CSV,
+          Excel or JSON. Please enable JavaScript to use the app.
+        </p>
+      </main>
+    </noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
